@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.nea-claudiu-worktrees/
+*.db
+.venv/

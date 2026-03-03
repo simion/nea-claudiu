@@ -1,0 +1,25 @@
+# Global config: ~/.config/nea-claudiu/config.yaml
+
+bitbucket:
+  workspace: your-workspace
+  auth_token: ${BB_AUTH_TOKEN}
+  poll_interval_seconds: 60
+
+# AI CLI to use: "claude" or "gemini" (default: claude)
+# Can be overridden per repo
+ai_cli: claude
+
+repos:
+  - name: my-project
+    path: ~/Work/Repos/my-project
+    # ai_cli: gemini  # override per repo
+
+  # - name: other-project
+  #   path: ~/Work/Repos/other-project
+  #   provider: bitbucket
+  #   ai_cli: gemini
+  #   bitbucket:
+  #     workspace: other-workspace
+  #     auth_token: ${OTHER_BB_TOKEN}
+
+state_db: ~/.local/share/nea-claudiu/state.db
