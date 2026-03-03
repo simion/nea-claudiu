@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from nea_claudiu.models import (
@@ -184,7 +185,10 @@ def review_pr(
     worktree_path = create_worktree(repo_path, pr)
     try:
         prompt = build_review_prompt(pr, project_config)
+        t0 = time.monotonic()
         output = invoke_ai_cli(prompt, worktree_path, ai_cli=ai_cli, timeout=timeout)
+        elapsed = time.monotonic() - t0
+        logger.info('AI review completed in %.1fs', elapsed)
         data = extract_json(output)
         return parse_review_result(data)
     finally:
