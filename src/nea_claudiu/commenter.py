@@ -16,21 +16,13 @@ SEVERITY_EMOJI = {
 }
 
 
-def _format_finding(finding: Finding) -> str:
+def _format_finding_summary(finding: Finding) -> str:
     loc = ''
     if finding.file:
         loc = f' — `{finding.file}`'
         if finding.line:
             loc += f' (line {finding.line})'
-    header = f'- {finding.title}{loc}'
-    parts = [header]
-    parts.append(f'  *{finding.category}* — {finding.issue}')
-    if finding.fix:
-        parts.append(f'  **Suggested fix:**')
-        parts.append(f'  ```')
-        parts.append(f'  {finding.fix}')
-        parts.append(f'  ```')
-    return '\n'.join(parts)
+    return f'- **{finding.title}**{loc}\n  {finding.issue}'
 
 
 def _format_inline_comment(finding: Finding) -> str:
@@ -38,8 +30,8 @@ def _format_inline_comment(finding: Finding) -> str:
     parts = [f'{emoji} **{finding.severity.value.upper()}** — {finding.title}']
     parts.append(finding.issue)
     if finding.fix:
-        parts.append(f'**Suggested fix:**\n```\n{finding.fix}\n```')
-    return '\n'.join(parts)
+        parts.append(f'**Suggested fix:**\n{finding.fix}')
+    return '\n\n'.join(parts)
 
 
 def _format_summary_comment(result: ReviewResult, non_inline_findings: list[Finding]) -> str:
@@ -62,7 +54,7 @@ def _format_summary_comment(result: ReviewResult, non_inline_findings: list[Find
         lines.append(f'### {emoji} {severity.value.capitalize()} ({len(findings)})')
         lines.append('')
         for finding in findings:
-            lines.append(_format_finding(finding))
+            lines.append(_format_finding_summary(finding))
         lines.append('')
 
     if result.summary:
@@ -71,7 +63,7 @@ def _format_summary_comment(result: ReviewResult, non_inline_findings: list[Find
 
     lines.append('')
     lines.append('---')
-    lines.append("*Automated review by nea-claudiu, an AI code review agent running on Simion's laptop. Findings are AI-generated — use your judgment.*")
+    lines.append("*Automated review by [nea-claudiu](https://github.com/simion/nea-claudiu). Findings are AI-generated — use your judgment.*")
 
     return '\n'.join(lines)
 

@@ -143,6 +143,15 @@ def review_single_pr(
     dry_run: bool = False,
     force: bool = False,
 ):
+    import signal
+
+    def _handle_shutdown(_signum, _frame):
+        logger.info('Shutting down')
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGINT, _handle_shutdown)
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+
     repo_config = next((r for r in global_config.repos if r.name == repo_name), None)
     if repo_config is None:
         raise ValueError(f'Repo "{repo_name}" not found in config')

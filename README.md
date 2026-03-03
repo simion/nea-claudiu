@@ -1,102 +1,231 @@
 # nea-claudiu
 
-AI code reviewer that watches your BitBucket PRs and posts review comments automatically. Runs locally on your machine.
+**Local AI code reviewer for BitBucket pull requests.** Watches your repos for new PRs, reviews them using Claude or Gemini, and posts structured comments — all from your machine.
 
-## Setup (2 minutes)
+No CI pipeline. No cloud service. No API keys beyond your existing AI CLI.
+
+## Why nea-claudiu?
+
+### Runs on your actual codebase, not a CI sandbox
+
+Unlike cloud-based review bots, nea-claudiu works directly on your **pre-cloned local repos**. The AI reviewer has full access to your codebase — it can read any file, follow imports, check how functions are called, and understand the full context of a change. No shallow clones, no missing dependencies, no sandboxed environments.
+
+### Git worktrees make it fast
+
+Each review runs in a **git worktree** — a lightweight, isolated checkout that shares the `.git` directory with your main repo. No re-cloning, no downloading. Creating a worktree takes milliseconds, not minutes. Reviews start instantly.
+
+### Run real commands, not just lint
+
+You can configure nea-claudiu to run **arbitrary commands** during review — linters, type checkers, test suites, build scripts. These run in the worktree against the actual PR code on your real machine, with your real dependencies installed. If `ruff check` or `pytest` fails, the AI sees it and includes it in the review.
+
+```yaml
+# .nea-claudiu.yaml
+test_commands:
+  - uv run ruff check .
+  - uv run mypy src/
+  - uv run pytest tests/ -x -q
+```
+
+### The AI does the actual reviewing
+
+nea-claudiu doesn't just run a linter and post the output. It invokes Claude or Gemini with **full tool access** — the AI autonomously diffs the PR, reads changed files, explores related code, runs your validation commands, and produces a structured review with severity-tagged findings and suggested fixes.
+
+### Daemon or one-shot
+
+Run it as a **background daemon** that polls for new PRs across all your repos, or use it for **one-shot reviews** of specific PRs. Dry-run mode lets you preview reviews before posting.
+
+### Multi-repo, multi-AI
+
+Configure multiple repositories with different settings, different AI backends (Claude or Gemini), and different review instructions per project. One daemon watches them all.
+
+### Project-aware instructions
+
+Each repo can include a `.nea-claudiu.yaml` with project-specific conventions, coding standards, and exploration instructions. The AI follows them during review — making reviews consistent with your team's practices, not generic advice.
+
+### Smart re-reviews
+
+When new commits are pushed to a PR, nea-claudiu automatically deletes its old comments and posts a fresh review. No stale feedback cluttering your PRs.
+
+## Quick Start
 
 ### 1. Install
 
 ```bash
-git clone git@github.com:simion/nea-claudiu.git
-uv tool install -e ./nea-claudiu
+git clone https://github.com/simion/nea-claudiu.git
+cd nea-claudiu
+uv tool install -e .
 ```
 
-### 2. Create global config
+Requires Python 3.12+ and [`uv`](https://docs.astral.sh/uv/). You also need `claude` or `gemini` CLI installed and authenticated.
+
+### 2. Configure
 
 ```bash
 mkdir -p ~/.config/nea-claudiu
 ```
 
-`~/.config/nea-claudiu/config.yaml`:
+Create `~/.config/nea-claudiu/config.yaml`:
 
 ```yaml
 bitbucket:
   workspace: your-workspace
-  auth_token: YOUR_BB_APP_PASSWORD
+  auth_token: ${BB_AUTH_TOKEN}   # or paste directly
   poll_interval_seconds: 60
 
 repos:
   - name: my-project
-    path: ~/Work/Repos/my-project
+    path: ~/repos/my-project
 ```
 
 That's it. You can now review PRs.
 
-### 3. (Optional) Add project-specific guidelines
-
-Drop a `.nea-claudiu.yaml` in your repo root:
-
-```yaml
-guidelines: |
-  - Python 3.12+, Django 5.x
-  - Single quotes for strings
-  - No broad except clauses
-
-explore: |
-  Read AGENTS.md at the repo root first.
-
-test_commands:
-  - uv run ruff check .
-
-skip_title_patterns: ['[no-review]', '[wip]']
-```
-
-## Usage
+### 3. Review a PR
 
 ```bash
-# Review a specific PR
-nea-claudiu review my-project --pr 1234
+# One-shot review
+nea-claudiu review my-project --pr 42
 
 # Preview without posting
-nea-claudiu review my-project --pr 1234 --dry-run
+nea-claudiu review my-project --pr 42 --dry-run
 
-# Watch all repos — reviews open PRs, then polls for new ones
+# Watch all repos for new PRs
 nea-claudiu watch -v
-
-# Check review history
-nea-claudiu status my-project
 ```
 
 ## How It Works
 
-1. Fetches PR info from BitBucket API
-2. Creates a git worktree for the PR branch
-3. Runs `claude --print` (or `gemini`) in the worktree — the AI diffs, explores, and reviews autonomously
-4. Parses the structured JSON output
-5. Posts inline comments for critical findings + a summary comment for the rest
-6. Cleans up the worktree
-
-Re-reviews automatically when new commits are pushed (old bot comments are deleted first).
-
-## Multiple Repos
-
-Just add more entries to the config:
-
-```yaml
-repos:
-  - name: project-a
-    path: ~/repos/project-a
-  - name: project-b
-    path: ~/repos/project-b
-    ai_cli: gemini  # use gemini instead of claude for this repo
+```
+Poll BitBucket → Check State (SQLite) → Create Worktree → AI Review (Claude/Gemini CLI) → Parse JSON → Post Comments
 ```
 
-## AI Backend
+1. Fetches open PRs from the BitBucket API
+2. Skips PRs that have already been reviewed at the current commit
+3. Creates a git worktree for the PR branch (fast — shares `.git` with your clone)
+4. Builds a review prompt with PR metadata, project instructions, and a JSON output schema
+5. Runs the AI CLI (`claude --print` or `gemini`) in the worktree with full tool access
+6. The AI autonomously diffs, explores, validates, and reviews the code
+7. Extracts the structured JSON review from the AI's output
+8. Posts inline comments on specific lines + a summary comment on the PR
+9. Cleans up the worktree
 
-Defaults to `claude`. Set `ai_cli: gemini` globally or per-repo to use Gemini CLI instead.
+## Configuration
+
+### Global config (`~/.config/nea-claudiu/config.yaml`)
+
+```yaml
+bitbucket:
+  workspace: your-workspace
+  auth_token: ${BB_AUTH_TOKEN}
+  poll_interval_seconds: 60
+
+ai_cli: claude  # or "gemini"
+
+# Global review instructions (applied to all repos)
+instructions: |
+  Be concise and constructive.
+  Every issue must include a concrete suggested fix.
+
+repos:
+  - name: backend
+    path: ~/repos/backend
+
+  - name: frontend
+    path: ~/repos/frontend
+    ai_cli: gemini  # override per repo
+
+  - name: other-project
+    path: ~/repos/other-project
+    bitbucket:
+      workspace: other-workspace      # different BB workspace
+      auth_token: ${OTHER_BB_TOKEN}   # different credentials
+
+state_db: ~/.local/share/nea-claudiu/state.db
+```
+
+### Per-project config (`.nea-claudiu.yaml` in repo root)
+
+```yaml
+# Review instructions specific to this project
+# (merged with global instructions — global first, then project)
+instructions: |
+  Python 3.12+, Django 5.x.
+  Single quotes for strings, double quotes for messages.
+  Check for missing select_related/prefetch_related.
+  No broad except clauses.
+  Read CONTRIBUTING.md at the repo root before reviewing.
+
+# Commands to run during review (executed in the worktree)
+test_commands:
+  - uv run ruff check .
+  - uv run mypy src/
+
+# PRs matching these title patterns are skipped
+skip_title_patterns:
+  - '[no-review]'
+  - '[wip]'
+
+# Authors to skip (e.g., bots)
+skip_authors: []
+
+# Which severity levels get inline comments on specific lines
+# (rest goes into the summary comment)
+inline_comments_for:
+  - critical
+  - suggestion
+
+# Auto-approve PRs with no critical findings
+approve_if_no_critical: false
+```
+
+## CLI Reference
+
+```bash
+# Daemon mode — polls all repos for new PRs
+nea-claudiu watch -v
+nea-claudiu watch -v --dry-run              # preview mode, no comments posted
+nea-claudiu watch -v --review-existing      # also review already-open PRs on startup
+
+# One-shot review
+nea-claudiu review my-project --pr 42
+nea-claudiu review my-project --branch feature/xyz
+nea-claudiu review my-project --pr 42 --dry-run
+nea-claudiu review my-project --pr 42 --force   # re-review even if already done
+
+# Review history
+nea-claudiu status my-project
+nea-claudiu status my-project --limit 50
+```
 
 ## Requirements
 
 - Python 3.12+
-- `claude` or `gemini` CLI installed and authenticated
+- [`claude`](https://docs.anthropic.com/en/docs/claude-code) or [`gemini`](https://ai.google.dev/gemini-api/docs/gemini-cli) CLI installed and authenticated
 - BitBucket app password with `pullrequest:write` scope
+- Git
+- [`uv`](https://docs.astral.sh/uv/) (for installation)
+
+## Architecture
+
+- **Polling, not webhooks** — runs locally, no tunnel or public endpoint needed
+- **Git worktrees** — isolated checkouts that share `.git`, creating them is near-instant
+- **AI has full tool access** — reads files, runs commands, explores the codebase in the worktree
+- **JSON output schema** — the AI outputs structured findings, the tool just parses and posts
+- **SQLite state** — tracks reviews by `(repo, pr_id, source_commit)` to avoid duplicates
+- **Provider abstraction** — BitBucket today, GitHub support planned
+
+## Roadmap
+
+- **GitHub provider** — same interface, different API
+- **Incremental re-reviews** — diff only new commits since last review
+- **Slack/webhook notifications** — get notified when a review is posted
+- **Multi-model support** — configure different AI models per repo
+
+## Disclaimer
+
+> This project is **100% vibe-coded** — written entirely through AI-assisted development. Every line was generated, reviewed, and iterated with Claude Code.
+>
+> **Why is that fine?** nea-claudiu is a read-only tool that posts comments on pull requests. It doesn't modify code, deploy anything, or touch your database. The worst it can do is post a bad review — and you're already reviewing those anyway.
+
+## License
+
+MIT

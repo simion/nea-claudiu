@@ -36,7 +36,7 @@ After completing your review, output EXACTLY this JSON block as the last thing i
       "file": "path/to/file.py",
       "line": 42,
       "issue": "explanation",
-      "fix": "suggested code fix or null"
+      "fix": "raw code fix (no markdown, no code fences) or null"
     }}
   ],
   "summary": "prioritized recommendations",

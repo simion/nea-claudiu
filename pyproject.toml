@@ -1,8 +1,19 @@
 [project]
 name = "nea-claudiu"
 version = "0.1.0"
-description = "Local BitBucket PR watcher + auto-reviewer powered by Claude/Gemini CLI"
+description = "Local AI code reviewer for BitBucket PRs — uses Claude or Gemini CLI to review pull requests and post structured comments"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
+keywords = ["code-review", "ai", "bitbucket", "pull-request", "claude", "gemini", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "click>=8.1,<9",
     "httpx>=0.27,<1",
