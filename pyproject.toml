@@ -1,0 +1,60 @@
+[project]
+name = "reviewd"
+version = "0.1.0"
+description = "Local AI code reviewer for GitHub and BitBucket PRs — uses Claude or Gemini CLI to review pull requests and post structured comments"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+keywords = ["code-review", "ai", "github", "bitbucket", "pull-request", "claude", "gemini", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "click>=8.1,<9",
+    "httpx>=0.27,<1",
+    "pyyaml>=6.0,<7",
+]
+
+[project.scripts]
+reviewd = "reviewd.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reviewd"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.8",
+    "black>=24",
+    "pre-commit>=4",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["src"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "N"]
+ignore = ["SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/reviewd/prompt.py" = ["E501"]
+
+[tool.black]
+target-version = ["py312"]
+line-length = 120
+skip-string-normalization = true
+preview = true

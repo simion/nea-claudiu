@@ -1,0 +1,97 @@
+# reviewd global config
+# Location: ~/.config/reviewd/config.yaml
+#
+# Run `reviewd init` to copy this file to the right location.
+# Uncomment and customize the settings you need.
+
+# --- Provider credentials (configure one or both) ---
+
+# GitHub (requires a Personal Access Token with `repo` scope)
+# github:
+#   token: ${GITHUB_TOKEN}
+
+# BitBucket (requires an App Password with pullrequest:read + pullrequest:write)
+# bitbucket:
+#   workspace: your-workspace
+#   auth_token: ${BB_AUTH_TOKEN}
+
+# --- AI CLI settings ---
+
+# AI CLI to use: "claude" or "gemini" (default: claude)
+# Can be overridden per repo.
+# cli: claude
+
+# Model passed as --model to the CLI. Uses CLI default if omitted.
+# Can be overridden per repo.
+# model: claude-sonnet-4-5-20250514
+
+# Extra CLI arguments passed to claude/gemini (e.g. --allowedTools, --policy)
+# cli_args:
+#   - --some-flag
+#   - value
+
+# --- Polling ---
+
+# How often to check for new PRs in daemon mode (seconds)
+# poll_interval_seconds: 60
+
+# --- Review appearance ---
+
+# Title shown as the H2 heading of the summary comment (supports markdown)
+# review_title: "Code Review by Nea' ~~Caisă~~ Claudiu"
+
+# Footer disclaimer appended to every summary comment
+# footer: "Automated review by [reviewd](https://github.com/simion/reviewd). Findings are AI-generated — use your judgment."
+
+# Global review instructions applied to all repos.
+# Per-project instructions in .reviewd.yaml are appended after these.
+# instructions: |
+#   Be concise and constructive.
+#   Every issue must include a concrete suggested fix.
+
+# --- Per-repo options (set in each repo's .reviewd.yaml) ---
+#
+# skip_severities:              # exclude severities from the review entirely
+#   - nitpick                   #   (also removes them from the prompt)
+#   - good                      #   options: critical, suggestion, nitpick, good
+# inline_comments_for:          # which severities get inline comments
+#   - critical
+#   - suggestion
+# max_inline_comments: 5        # if exceeded, skip all inline (null = unlimited)
+# show_overview: false           # show AI overview paragraph in summary comment
+# min_diff_lines: 5             # skip PRs with fewer changed lines than this
+# review_cooldown_minutes: 30   # don't re-review same PR within N minutes
+# skip_title_patterns:          # skip PRs matching these title patterns
+#   - '[no-review]'
+#   - '[wip]'
+# skip_authors: []              # skip PRs from these authors (e.g. bots)
+# approve_if_no_critical: false  # auto-approve PRs with no critical findings
+# test_commands:                 # commands to run in worktree during review
+#   - uv run ruff check .
+#   - uv run pytest tests/ -x -q
+
+# --- Repos ---
+
+repos: []
+  # - name: my-gh-repo
+  #   repo_slug: owner/my-gh-repo   # owner/repo for GitHub API
+  #   path: ~/repos/my-gh-repo
+  #   provider: github
+  #
+  # - name: my-bb-project
+  #   path: ~/repos/my-bb-project
+  #   provider: bitbucket
+  #   # cli: gemini              # override per repo
+  #   # model: gemini-2.5-pro    # override per repo
+  #
+  # - name: other-project
+  #   path: ~/repos/other-project
+  #   provider: bitbucket
+  #   bitbucket:                       # per-repo provider credentials
+  #     workspace: other-workspace
+  #     auth_token: ${OTHER_BB_TOKEN}
+
+# --- State ---
+
+# SQLite database for tracking reviews and posted comments
+# state_db: ~/.local/share/reviewd/state.db
