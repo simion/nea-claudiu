@@ -193,6 +193,16 @@ reviewd status <repo>                         # review history
 
 > reviewd gives the AI CLI full tool access in git worktrees on your machine. Only watch repos where you trust the contributors.
 
+**Claude CLI (recommended)** runs with `--print` mode — read-only, no tool use, no code execution. The AI only sees the prompt and returns text. This is the safest option.
+
+**Gemini CLI** runs with `--approval-mode yolo` because it has no equivalent print-only mode. This means Gemini can execute commands and modify files in the worktree during review. Extensions are disabled (`-e none`), but it's inherently less sandboxed than Claude's `--print`.
+
+**Mitigations:**
+- Reviews run in isolated git worktrees, not your working copy
+- The prompt includes a security scope block forbidding file writes, network access, and secret access
+- Per-project config (`.reviewd.yaml`) is read from the main repo, not the worktree — PR authors can't inject instructions
+- `test_commands` come only from the repo owner's config, not from PR content
+
 ## Disclaimer
 
 > This project is **100% vibe-coded** — written entirely through AI-assisted development with Claude Code, with thorough human review and guidance at every step.
