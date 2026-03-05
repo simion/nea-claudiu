@@ -20,13 +20,19 @@ from reviewd.state import StateDB
 logger = logging.getLogger(__name__)
 
 
-def _retry_on_network_error(retries=2, delay=2):
+def _retry_on_network_error(retries=2, delay=5):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             for attempt in range(retries + 1):
                 try:
                     return fn(*args, **kwargs)
+                except httpx.ConnectError:
+                    if attempt < retries:
+                        logger.warning('Network unavailable, retrying (%d/%d)...', attempt + 1, retries)
+                        time.sleep(delay)
+                    else:
+                        logger.warning('Network unavailable, will retry next cycle')
                 except httpx.TransportError:
                     if attempt < retries:
                         logger.warning('Network error, retrying (%d/%d)...', attempt + 1, retries)
