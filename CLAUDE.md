@@ -51,7 +51,7 @@ Provider credentials, repos list, poll interval, AI CLI choice, model, cli_args,
 
 ### Per-project: `{repo_root}/.reviewd.yaml`
 
-Project-specific `instructions`, `test_commands`, `inline_comments_for`, `approve_if_no_critical`, `critical_task`.
+Project-specific `instructions`, `test_commands`, `inline_comments_for`, `auto_approve`, `critical_task`.
 
 Instructions merge: global + per-project concatenated (global first). Old `guidelines`/`explore` fields still supported.
 
@@ -93,6 +93,18 @@ reviewd status pydpf                          # review history
 - Gemini CLI: `-e none` disables all extensions
 - Project config (`.reviewd.yaml`) is read from the main repo, not the worktree — PR authors cannot inject instructions via config
 - `test_commands` come only from the repo owner's config, not from PR content
+
+## Releasing
+
+Publish directly to PyPI with `uv publish`. No GitHub Releases — `gh` CLI is not available.
+
+```bash
+# 1. Bump version in pyproject.toml
+# 2. Commit and push
+git add pyproject.toml && git commit -m "Bump version to X.Y.Z" && git push
+# 3. Build and publish
+uv build && uv publish
+```
 
 ## Known Limitations
 
