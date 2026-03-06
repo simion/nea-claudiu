@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 
+from reviewd.colors import BOLD_WHITE, CLEAR_LINE, DIM, GREEN, RESET, WHITE, YELLOW
 from reviewd.commenter import post_review
 from reviewd.config import get_provider, load_project_config
 from reviewd.models import GlobalConfig, PRInfo, ProjectConfig, RepoConfig
@@ -76,9 +77,9 @@ def _status(msg: str, *, clear: bool = True):
     if _is_verbose:
         return
     if clear:
-        sys.stderr.write(f'\r\033[K{msg}')
+        sys.stderr.write(f'{CLEAR_LINE}{msg}')
     else:
-        sys.stderr.write(f'\r\033[K{msg}\n')
+        sys.stderr.write(f'{CLEAR_LINE}{msg}\n')
     sys.stderr.flush()
 
 
@@ -129,17 +130,34 @@ def _process_pr(
             logger.info('PR #%d in cooldown (%dmin remaining), skipping', pr.pr_id, remaining)
             return
 
+    diff_lines = None
     if not force:
         is_update = state_db.has_any_review(pr.repo_slug, pr.pr_id)
         threshold = project_config.min_diff_lines_update if is_update else project_config.min_diff_lines
-        if threshold > 0:
+        needs_diff = threshold > 0 or project_config.auto_approve.max_diff_lines is not None
+        if needs_diff:
             diff_lines = get_diff_lines(repo_config.path, pr)
-            if 0 <= diff_lines < threshold:
+            if threshold > 0 and 0 <= diff_lines < threshold:
                 logger.info('PR #%d diff too small (%d lines < %d), skipping', pr.pr_id, diff_lines, threshold)
                 return
 
-    logger.log(25, 'Reviewing PR #%d: %s (commit %s)', pr.pr_id, pr.title, pr.source_commit[:8])
+    logger.log(
+        22,
+        f'Reviewing PR #%d: %s {RESET}by {BOLD_WHITE}%s{RESET} (commit %s)',
+        pr.pr_id,
+        pr.title,
+        pr.author,
+        pr.source_commit[:8],
+    )
     state_db.start_review(pr.repo_slug, pr.pr_id, pr.source_commit)
+
+    def _progress(msg: str):
+        if msg:
+            _status(f'⏳ PR #{pr.pr_id} — {msg}')
+        else:
+            _status('', clear=True)
+
+    progress_callback = None if _is_verbose else _progress
 
     try:
         result = review_pr(
@@ -149,6 +167,7 @@ def _process_pr(
             cli=repo_config.cli,
             model=repo_config.model or global_config.model,
             cli_args=global_config.cli_args,
+            progress_callback=progress_callback,
         )
         post_review(
             provider,
@@ -160,6 +179,7 @@ def _process_pr(
             cli=repo_config.cli,
             model=repo_config.model or global_config.model,
             dry_run=dry_run,
+            diff_lines=diff_lines,
         )
         state_db.finish_review(pr.repo_slug, pr.pr_id, pr.source_commit)
         logger.log(25, 'Finished review of PR #%d (%d findings)', pr.pr_id, len(result.findings))
@@ -191,7 +211,7 @@ def _boot_summary(global_config: GlobalConfig, state_db: StateDB, review_existin
         provider = get_provider(global_config, repo_config)
         prs = provider.list_open_prs(repo_config.slug)
         logger.info(
-            'Watching \033[32m%s\033[0m (%s, %s) — %d open PRs',
+            f'Watching {GREEN}%s{RESET} (%s, %s) — %d open PRs',
             repo_config.name,
             repo_config.provider,
             repo_config.cli.value,
@@ -202,12 +222,12 @@ def _boot_summary(global_config: GlobalConfig, state_db: StateDB, review_existin
         drafts = 0
         for pr in prs:
             if pr.draft and not _has_review_tag(pr.title):
-                logger.info('  \033[2m⏸ #%d  %s  (%s) — draft\033[0m', pr.pr_id, pr.title, pr.author)
+                logger.info(f'  {DIM}⏸ #%d  %s  (%s) — draft{RESET}', pr.pr_id, pr.title, pr.author)
                 drafts += 1
                 continue
             already_reviewed = state_db.has_review(pr.repo_slug, pr.pr_id, pr.source_commit)
             if already_reviewed:
-                logger.info('  ✓ #%d  \033[37m%s\033[0m  (%s)', pr.pr_id, pr.title, pr.author)
+                logger.info(f'  ✓ #%d  {WHITE}%s{RESET}  (%s)', pr.pr_id, pr.title, pr.author)
                 reviewed += 1
             elif review_existing:
                 logger.info('  • #%d  %s  (%s) — will review', pr.pr_id, pr.title, pr.author)
@@ -218,7 +238,7 @@ def _boot_summary(global_config: GlobalConfig, state_db: StateDB, review_existin
                 skipped += 1
         if skipped:
             logger.info(
-                '  \033[33m%d not yet reviewed — use --review-existing to include them\033[0m',
+                f'  {YELLOW}%d not yet reviewed — use --review-existing to include them{RESET}',
                 skipped,
             )
 

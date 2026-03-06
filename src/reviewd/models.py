@@ -11,6 +11,14 @@ class Severity(enum.StrEnum):
     GOOD = 'good'
 
 
+SEVERITY_ORDER = {
+    'good': 0,
+    'nitpick': 1,
+    'suggestion': 2,
+    'critical': 3,
+}
+
+
 @dataclass
 class Finding:
     severity: Severity
@@ -29,6 +37,8 @@ class ReviewResult:
     findings: list[Finding]
     summary: str
     tests_passed: bool | None = None
+    approve: bool = False
+    approve_reason: str | None = None
 
 
 @dataclass
@@ -50,6 +60,15 @@ class GithubConfig:
 
 
 @dataclass
+class AutoApproveConfig:
+    enabled: bool = False
+    max_diff_lines: int | None = None
+    max_severity: str | None = None
+    max_findings: int | None = None
+    rules: str | None = None
+
+
+@dataclass
 class ProjectConfig:
     instructions: str | None = None
     test_commands: list[str] = field(default_factory=list)
@@ -60,7 +79,7 @@ class ProjectConfig:
     min_diff_lines: int = 0
     min_diff_lines_update: int = 5
     review_cooldown_minutes: int = 0
-    approve_if_no_critical: bool = False
+    auto_approve: AutoApproveConfig = field(default_factory=AutoApproveConfig)
     critical_task: bool = False
     critical_task_message: str = 'Critical issue found by AI review. Dismiss if false positive.'
 
@@ -96,6 +115,7 @@ class GlobalConfig:
     model: str | None = None
     cli_args: list[str] = field(default_factory=list)
     instructions: str | None = None
+    auto_approve: AutoApproveConfig | None = None
     skip_title_patterns: list[str] = field(default_factory=lambda: ['[no-review]', '[wip]', '[no-claudiu]'])
     skip_authors: list[str] = field(default_factory=list)
     poll_interval_seconds: int = 60

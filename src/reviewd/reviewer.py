@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from reviewd.models import (
@@ -172,6 +173,7 @@ def invoke_cli(
     timeout: int = DEFAULT_TIMEOUT,
     model: str | None = None,
     cli_args: list[str] | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write(prompt)
@@ -206,7 +208,11 @@ def invoke_cli(
             t0 = time.monotonic()
             while not stop_event.wait(30):
                 elapsed = int(time.monotonic() - t0)
-                logger.info('%s review in progress... (%ds elapsed)', cli.value, elapsed)
+                msg = f'{cli.value} review in progress... ({elapsed}s elapsed)'
+                if progress_callback:
+                    progress_callback(msg)
+                else:
+                    logger.info('%s', msg)
 
         stderr_thread = threading.Thread(target=_stream_stderr, daemon=True)
         stderr_thread.start()
@@ -227,6 +233,8 @@ def invoke_cli(
             stop_event.set()
             stderr_thread.join(timeout=5)
             ticker_thread.join(timeout=5)
+            if progress_callback:
+                progress_callback('')
 
         stderr = '\n'.join(stderr_lines)
         if proc.returncode != 0:
@@ -267,6 +275,8 @@ def parse_review_result(data: dict) -> ReviewResult:
         findings=findings,
         summary=data.get('summary', ''),
         tests_passed=data.get('tests_passed'),
+        approve=bool(data.get('approve', False)),
+        approve_reason=data.get('approve_reason'),
     )
 
 
@@ -278,12 +288,21 @@ def review_pr(
     timeout: int = DEFAULT_TIMEOUT,
     model: str | None = None,
     cli_args: list[str] | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ReviewResult:
     worktree_path = create_worktree(repo_path, pr)
     try:
         prompt = build_review_prompt(pr, project_config)
         t0 = time.monotonic()
-        output = invoke_cli(prompt, worktree_path, cli=cli, timeout=timeout, model=model, cli_args=cli_args)
+        output = invoke_cli(
+            prompt,
+            worktree_path,
+            cli=cli,
+            timeout=timeout,
+            model=model,
+            cli_args=cli_args,
+            progress_callback=progress_callback,
+        )
         elapsed = time.monotonic() - t0
         logger.info('AI review completed in %.1fs', elapsed)
         logger.debug('Extracting JSON from AI output (%d chars)', len(output))

@@ -2,7 +2,17 @@ from __future__ import annotations
 
 import logging
 
-from reviewd.models import CLI, Finding, GlobalConfig, PRInfo, ProjectConfig, ReviewResult, Severity
+from reviewd.models import (
+    CLI,
+    SEVERITY_ORDER,
+    AutoApproveConfig,
+    Finding,
+    GlobalConfig,
+    PRInfo,
+    ProjectConfig,
+    ReviewResult,
+    Severity,
+)
 from reviewd.providers.base import GitProvider
 from reviewd.state import StateDB
 
@@ -75,6 +85,10 @@ def _format_summary_comment(
         lines.append(f'**Bottom line:** {result.summary}')
         lines.append('')
 
+    if result.approve and result.approve_reason:
+        lines.append(f'**Auto-approve rationale:** {result.approve_reason}')
+        lines.append('')
+
     powered_by = model or cli.value
     lines.append(f'*{global_config.footer} Powered by {powered_by}.*')
 
@@ -95,6 +109,32 @@ def _sync_critical_task(provider, pr: PRInfo, result: ReviewResult, project_conf
         logger.exception('Failed to sync critical task on PR #%d', pr.pr_id)
 
 
+def _check_auto_approve_gates(
+    aa: AutoApproveConfig,
+    result: ReviewResult,
+    diff_lines: int | None,
+) -> str | None:
+    if aa.max_diff_lines is not None and diff_lines is not None and diff_lines > aa.max_diff_lines:
+        return f'diff too large ({diff_lines} > {aa.max_diff_lines})'
+
+    if aa.max_findings is not None:
+        issue_count = sum(1 for f in result.findings if f.severity != Severity.GOOD)
+        if issue_count > aa.max_findings:
+            return f'too many findings ({issue_count} > {aa.max_findings})'
+
+    if aa.max_severity is not None:
+        max_allowed = SEVERITY_ORDER.get(aa.max_severity, 3)
+        for f in result.findings:
+            f_order = SEVERITY_ORDER.get(f.severity.value, 3)
+            if f_order > max_allowed:
+                return f'finding severity {f.severity.value} exceeds max {aa.max_severity}'
+
+    if not result.approve:
+        return 'AI did not approve'
+
+    return None
+
+
 def post_review(
     provider: GitProvider,
     state_db: StateDB,
@@ -105,6 +145,7 @@ def post_review(
     cli: CLI = CLI.CLAUDE,
     model: str | None = None,
     dry_run: bool = False,
+    diff_lines: int | None = None,
 ):
     # Deduplicate findings by file + line + title
     seen: set[tuple] = set()
@@ -127,6 +168,8 @@ def post_review(
         findings=unique_findings,
         summary=result.summary,
         tests_passed=result.tests_passed,
+        approve=result.approve,
+        approve_reason=result.approve_reason,
     )
 
     inline_severities = {s for s in project_config.inline_comments_for}
@@ -144,7 +187,16 @@ def post_review(
     inline_ids = {id(f) for f in inline_findings}
 
     if dry_run:
-        _print_dry_run(result, inline_findings, inline_ids, global_config, project_config, cli, model=model)
+        _print_dry_run(
+            result,
+            inline_findings,
+            inline_ids,
+            global_config,
+            project_config,
+            cli,
+            model=model,
+            diff_lines=diff_lines,
+        )
         return
 
     logger.info('Posting review: %d inline + summary comment', len(inline_findings))
@@ -183,11 +235,14 @@ def post_review(
     if project_config.critical_task and hasattr(provider, 'list_tasks'):
         _sync_critical_task(provider, pr, result, project_config)
 
-    if project_config.approve_if_no_critical:
-        has_critical = any(f.severity == Severity.CRITICAL for f in result.findings)
-        if not has_critical:
+    aa = project_config.auto_approve
+    if aa.enabled:
+        blocked = _check_auto_approve_gates(aa, result, diff_lines)
+        if blocked:
+            logger.info('Auto-approve blocked for PR #%d: %s', pr.pr_id, blocked)
+        else:
             provider.approve_pr(pr.repo_slug, pr.pr_id)
-            logger.info('Auto-approved PR #%d (no critical findings)', pr.pr_id)
+            logger.info('Auto-approved PR #%d', pr.pr_id)
 
 
 def _print_dry_run(
@@ -198,6 +253,7 @@ def _print_dry_run(
     project_config: ProjectConfig,
     cli: CLI = CLI.CLAUDE,
     model: str | None = None,
+    diff_lines: int | None = None,
 ):
     print('\n' + '=' * 60)
     print('DRY RUN — would post the following comments:')
@@ -211,4 +267,13 @@ def _print_dry_run(
 
     print('\n--- Summary Comment ---')
     print(_format_summary_comment(result, inline_ids, global_config, project_config, cli, model=model))
+
+    aa = project_config.auto_approve
+    if aa.enabled:
+        blocked = _check_auto_approve_gates(aa, result, diff_lines)
+        if blocked:
+            print(f'\n--- Auto-Approve: BLOCKED ({blocked}) ---')
+        else:
+            print('\n--- Auto-Approve: WOULD APPROVE ---')
+
     print('=' * 60 + '\n')

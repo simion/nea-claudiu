@@ -19,8 +19,10 @@
 - **Multi-repo, multi-AI** — different repos can use different AI backends, models, and review instructions.
 - **Smart re-reviews** — new commits on a PR trigger a fresh review; old comments are deleted automatically.
 - **Draft-aware** — skips draft PRs by default. Add `[review]`, `[claudiu]`, `[ask]`, or `[bot review]` to the title to request a review anyway.
+- **Auto-approve** — automatically approves PRs that pass configurable gates (diff size, severity, finding count) and AI-evaluated rules. Shows approval rationale in the summary comment.
 - **Critical tasks** — optionally creates a BitBucket PR task on critical findings to block merge.
 - **Spam protection** — configurable diff size thresholds, cooldowns, and title/author skip patterns.
+- **Auto-sync config** — automatically pulls `.reviewd.yaml` from remote when the working copy is clean.
 
 ## Quick Start
 
@@ -163,9 +165,39 @@ inline_comments_for: [critical]  # rest goes in summary
 # min_diff_lines: 0              # initial review threshold (0 = disabled)
 # min_diff_lines_update: 5       # re-review threshold for pushed commits
 # review_cooldown_minutes: 30
-# approve_if_no_critical: false
 # critical_task: true            # create PR task on critical findings (BitBucket)
 ```
+
+### Auto-Approve
+
+reviewd can automatically approve PRs that pass all configured gates. The AI is asked to evaluate the PR against your rules and provide an approval reason, which is shown in the summary comment.
+
+```yaml
+# in .reviewd.yaml
+auto_approve:
+  enabled: true
+  max_diff_lines: 50        # block approval if diff exceeds this
+  max_severity: nitpick     # highest allowed severity (good < nitpick < suggestion < critical)
+  max_findings: 3           # block if more findings than this (excludes "good" findings)
+  rules: |                  # custom rules sent to the AI for the approval decision
+    Only approve safe, simple changes:
+    - Minor refactors, renames, typo fixes
+    - Small bug fixes with obvious correctness
+    - Config/settings tweaks, dependency bumps
+    Never approve changes with migrations or complex business logic.
+```
+
+**How it works:**
+
+1. The AI reviews the PR normally, producing findings
+2. The AI evaluates your `rules` and sets `approve: true/false` with a reason
+3. reviewd checks the gates: `max_diff_lines`, `max_severity`, `max_findings`
+4. If all gates pass **and** the AI approved, the PR is approved via the provider API
+5. The approval reason is included in the summary comment
+
+All gates must pass — if any one blocks, the PR is not approved. The `rules` field is sent verbatim to the AI as part of the review prompt, so write it as instructions.
+
+`auto_approve` can also be set in the global config and will be inherited by all repos. Per-project settings override global ones.
 
 ## CLI Reference
 

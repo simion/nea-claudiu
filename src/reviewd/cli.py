@@ -11,6 +11,7 @@ from pathlib import Path
 
 import click
 
+from reviewd.colors import BOLD_RED, CYAN, DIM, GREEN, RED, RESET, YELLOW
 from reviewd.config import get_provider, load_global_config
 from reviewd.daemon import review_single_pr, run_poll_loop
 from reviewd.models import CLI, GlobalConfig
@@ -31,25 +32,28 @@ def _apply_cli_override(config: GlobalConfig, cli: str | None):
         repo.cli = cli_enum
 
 
+PROGRESS_LOG_LEVEL = 22
+logging.addLevelName(PROGRESS_LOG_LEVEL, 'PROGRESS')
+
 REVIEW_LOG_LEVEL = 25
 logging.addLevelName(REVIEW_LOG_LEVEL, 'REVIEW')
 
 
 class _ColorFormatter(logging.Formatter):
     COLORS = {
-        logging.DEBUG: '\033[2m',  # dim
-        logging.WARNING: '\033[33m',  # yellow
-        logging.ERROR: '\033[31m',  # red
-        logging.CRITICAL: '\033[1;31m',  # bold red
-        REVIEW_LOG_LEVEL: '\033[32m',  # green
+        logging.DEBUG: DIM,
+        PROGRESS_LOG_LEVEL: CYAN,
+        logging.WARNING: YELLOW,
+        logging.ERROR: RED,
+        logging.CRITICAL: BOLD_RED,
+        REVIEW_LOG_LEVEL: GREEN,
     }
-    RESET = '\033[0m'
 
     def format(self, record):
         color = self.COLORS.get(record.levelno, '')
-        record.levelname = f'{color}{record.levelname:<8}{self.RESET}'
+        record.levelname = f'{color}{record.levelname:<8}{RESET}'
         if color:
-            record.msg = f'{color}{record.msg}{self.RESET}'
+            record.msg = f'{color}{record.msg}{RESET}'
         return super().format(record)
 
 
@@ -106,7 +110,7 @@ def _check_for_updates():
                 cmd = 'pipx upgrade reviewd'
             else:
                 cmd = 'pip install --upgrade reviewd'
-            click.echo(f'\033[33mUpdate available: v{VERSION} \u2192 v{latest}  ({cmd})\033[0m')
+            click.echo(f'{YELLOW}Update available: v{VERSION} \u2192 v{latest}  ({cmd}){RESET}')
     except Exception:
         pass
 

@@ -24,18 +24,21 @@ Source commit: {source_commit}
 ## Your Task
 Perform a thorough code review of this pull request.
 
-1. Compute the diff: run `git merge-base origin/{destination} HEAD`, then `git diff <merge-base>..HEAD`
-2. Read the changed files in full to understand surrounding context
-3. Explore related code (how changed functions are used, related models/views/utilities)
+1. Look for project context: check for CLAUDE.md, GEMINI.md, or AGENTS.md at the repo root. If none exist, read README.md instead. Use these to understand project conventions before reviewing.
+2. Compute the diff: run `git merge-base origin/{destination} HEAD`, then `git diff <merge-base>..HEAD`
+3. Read the changed files in full to understand surrounding context
+4. Explore related code (how changed functions are used, related models/views/utilities)
 {validation_section}\
-4. Review the changes for correctness, security, performance, architecture, and maintainability
+5. Review the changes for correctness, security, performance, architecture, and maintainability
 
 ## Severity Definitions
 {severity_section}\
 {instructions_section}\
+{approve_section}\
 
 ## Important
 - ONLY review code that is part of the diff. Do NOT flag pre-existing issues in unchanged code, even if the changed code interacts with it. If you notice a pre-existing problem, you may mention it as context but do NOT create a finding for it.
+- Be constructive and specific — every issue must include a concrete suggested fix.
 - If the code looks fine, say so. Do NOT invent issues to justify the review. An empty findings list is a valid and preferred outcome for clean code. Only report issues that are genuinely useful — the goal is to help, not to nitpick or frustrate.
 - Double-check every "line" number before including it. The line number must point to the EXACT line in the diff where the issue occurs. Off-by-one errors make inline comments appear on the wrong line.
 - When in doubt, re-read the file to verify the line number.
@@ -57,7 +60,9 @@ After completing your review, output EXACTLY this JSON block as the last thing i
     }}
   ],
   "summary": "prioritized recommendations",
-  "tests_passed": true|false|null
+  "tests_passed": true|false|null,
+  "approve": true|false,
+  "approve_reason": "one sentence explaining why this PR is safe to auto-approve, or why it should not be. null if auto-approve is not enabled"
 }}
 ```\
 """
@@ -68,7 +73,7 @@ def build_review_prompt(
     project_config: ProjectConfig,
     changed_files: list[str] | None = None,
 ) -> str:
-    step = 5
+    step = 6
     validation_section = ''
     if project_config.test_commands:
         commands = project_config.test_commands
@@ -81,6 +86,22 @@ def build_review_prompt(
     instructions_section = ''
     if project_config.instructions:
         instructions_section = f'\n## Project Instructions\n{project_config.instructions}\n'
+
+    approve_section = ''
+    if project_config.auto_approve.enabled:
+        if project_config.auto_approve.rules:
+            approve_section = (
+                '\n## Auto-Approve Decision\n'
+                'Based on the following rules, decide whether this PR should be auto-approved.\n'
+                f'Set "approve" to true in your JSON output ONLY if ALL rules are satisfied:\n\n'
+                f'{project_config.auto_approve.rules}\n'
+            )
+        else:
+            approve_section = (
+                '\n## Auto-Approve Decision\n'
+                'Set "approve" to true in your JSON output if no critical issues were found, '
+                'false otherwise.\n'
+            )
 
     skip = set(project_config.skip_severities)
     all_severities = {
@@ -104,4 +125,5 @@ def build_review_prompt(
         validation_section=validation_section,
         severity_section=severity_section,
         instructions_section=instructions_section,
+        approve_section=approve_section,
     )

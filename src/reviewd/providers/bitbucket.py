@@ -116,8 +116,19 @@ class BitbucketProvider(GitProvider):
         return False
 
     def approve_pr(self, repo_slug: str, pr_id: int) -> None:
-        url = f'/repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/approve'
-        resp = self.client.post(url)
+        url = f'{BB_API_BASE}/repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/approve'
+        resp = httpx.post(url, headers={'Authorization': self.client.headers['Authorization']})
+        if resp.status_code == 400:
+            logger.debug('Cannot approve PR #%d (likely self-approve): %s', pr_id, resp.text[:200])
+            return
+        if resp.status_code >= 400:
+            logger.error(
+                'Failed to approve PR #%d: %d %s',
+                pr_id,
+                resp.status_code,
+                resp.text,
+            )
+            return
         resp.raise_for_status()
         logger.info('Approved PR #%d', pr_id)
 

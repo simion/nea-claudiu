@@ -74,7 +74,15 @@
 # min_diff_lines: 0             # skip initial PR review if fewer changed lines (0 = disabled)
 # min_diff_lines_update: 5      # skip re-review on pushed commits if fewer changed lines
 # review_cooldown_minutes: 30   # don't re-review same PR within N minutes
-# approve_if_no_critical: false  # auto-approve PRs with no critical findings
+# approve_if_no_critical: false  # deprecated, use auto_approve instead
+# auto_approve:
+#   enabled: true
+#   max_diff_lines: 50          # skip approval if diff exceeds this
+#   max_severity: nitpick       # highest allowed: good < nitpick < suggestion < critical
+#   max_findings: 3             # skip approval if more findings than this
+#   rules: |                    # custom rules sent to the AI for approval decision
+#     Approve only if no security-related changes.
+#     Approve only if no changes to DB models or migrations.
 # critical_task: false           # create a PR task on critical findings (BitBucket only)
 # critical_task_message: "Critical issue found by AI review. Dismiss if false positive."
 # test_commands:                 # commands to run in worktree during review

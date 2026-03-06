@@ -123,6 +123,9 @@ class GithubProvider(GitProvider):
     def approve_pr(self, repo_slug: str, pr_id: int) -> None:
         url = f'/repos/{repo_slug}/pulls/{pr_id}/reviews'
         resp = self.client.post(url, json={'event': 'APPROVE'})
+        if resp.status_code == 422:
+            logger.warning('Cannot approve PR #%d (likely self-approve): %s', pr_id, resp.text[:200])
+            return
         resp.raise_for_status()
         logger.info('Approved PR #%d', pr_id)
 
