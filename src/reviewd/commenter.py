@@ -53,6 +53,7 @@ def _format_summary_comment(
     project_config: ProjectConfig,
     cli: CLI = CLI.CLAUDE,
     model: str | None = None,
+    approved: bool = False,
 ) -> str:
     lines = [f'## {global_config.review_title}', '']
     if project_config.show_overview and result.overview:
@@ -85,12 +86,13 @@ def _format_summary_comment(
         lines.append(f'**Bottom line:** {result.summary}')
         lines.append('')
 
-    if project_config.auto_approve.enabled and result.approve and result.approve_reason:
+    if approved and result.approve_reason:
         lines.append(f'**Auto-approve rationale:** {result.approve_reason}')
         lines.append('')
 
     powered_by = model or cli.value
     lines.append(f'*{global_config.footer} Powered by {powered_by}.*')
+    lines.append('*Replies to this comment are not monitored.*')
 
     return '\n'.join(lines)
 
@@ -227,22 +229,28 @@ def post_review(
         except Exception:
             logger.exception('Failed to post inline comment on %s:%s, skipping', finding.file, finding.line)
 
+    aa = project_config.auto_approve
+    approved = False
+    if aa.enabled:
+        blocked = _check_auto_approve_gates(aa, result, diff_lines)
+        if blocked:
+            logger.info('Auto-approve blocked for PR #%d: %s', pr.pr_id, blocked)
+        else:
+            approved = True
+
     logger.info('Posting summary comment')
-    summary_body = _format_summary_comment(result, inline_ids, global_config, project_config, cli, model=model)
+    summary_body = _format_summary_comment(
+        result, inline_ids, global_config, project_config, cli, model=model, approved=approved
+    )
     comment_id = provider.post_comment(pr.repo_slug, pr.pr_id, summary_body)
     state_db.record_comment(pr.repo_slug, pr.pr_id, comment_id)
 
     if project_config.critical_task and hasattr(provider, 'list_tasks'):
         _sync_critical_task(provider, pr, result, project_config)
 
-    aa = project_config.auto_approve
-    if aa.enabled:
-        blocked = _check_auto_approve_gates(aa, result, diff_lines)
-        if blocked:
-            logger.info('Auto-approve blocked for PR #%d: %s', pr.pr_id, blocked)
-        else:
-            provider.approve_pr(pr.repo_slug, pr.pr_id)
-            logger.info('Auto-approved PR #%d', pr.pr_id)
+    if approved:
+        provider.approve_pr(pr.repo_slug, pr.pr_id)
+        logger.info('Auto-approved PR #%d', pr.pr_id)
 
 
 def _print_dry_run(
@@ -265,15 +273,21 @@ def _print_dry_run(
             print(f'\n  File: {f.file}:{f.line}')
             print(f'  {_format_inline_comment(f)}')
 
-    print('\n--- Summary Comment ---')
-    print(_format_summary_comment(result, inline_ids, global_config, project_config, cli, model=model))
-
     aa = project_config.auto_approve
+    approved = False
     if aa.enabled:
         blocked = _check_auto_approve_gates(aa, result, diff_lines)
         if blocked:
             print(f'\n--- Auto-Approve: BLOCKED ({blocked}) ---')
         else:
-            print('\n--- Auto-Approve: WOULD APPROVE ---')
+            approved = True
+
+    print('\n--- Summary Comment ---')
+    print(
+        _format_summary_comment(result, inline_ids, global_config, project_config, cli, model=model, approved=approved)
+    )
+
+    if aa.enabled and approved:
+        print('\n--- Auto-Approve: WOULD APPROVE ---')
 
     print('=' * 60 + '\n')
