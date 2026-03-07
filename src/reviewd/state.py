@@ -37,6 +37,12 @@ class StateDB:
                 comment_id INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE INDEX IF NOT EXISTS idx_reviews_repo_pr
+                ON reviews (repo_slug, pr_id);
+
+            CREATE INDEX IF NOT EXISTS idx_posted_comments_repo_pr
+                ON posted_comments (repo_slug, pr_id);
         """
         )
 
