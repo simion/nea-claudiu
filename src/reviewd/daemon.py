@@ -123,6 +123,10 @@ def _process_pr(
     if _shutdown_event.is_set():
         return
 
+    if not pr.source_commit:
+        logger.warning('PR #%d has no source commit (branch deleted?), skipping', pr.pr_id)
+        return
+
     if not force and _should_skip(pr, global_config):
         return
 
