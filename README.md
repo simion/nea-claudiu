@@ -5,17 +5,17 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/simion/reviewd/actions/workflows/ci.yml/badge.svg)](https://github.com/simion/reviewd/actions/workflows/ci.yml)
 
-**The review daemon** — local AI code reviewer for GitHub and BitBucket pull requests, powered by Claude Code / Gemini CLI subscriptions.
+**The review daemon** — local AI code reviewer for GitHub and BitBucket pull requests, powered by Claude Code / Gemini / Codex CLI subscriptions.
 
-- Watches your repos for new PRs, reviews them using Claude or Gemini CLI, and posts structured comments
+- Watches your repos for new PRs, reviews them using Claude, Gemini, or Codex CLI, and posts structured comments
 - All from your machine — no CI pipeline, no cloud service, no new accounts
 - Secure by default — can only access repos you already have locally, as secure as your machine
 
-> If you already have `claude` or `gemini` CLI and local git clones, you're 5 minutes away from automated code reviews.
+> If you already have `claude`, `gemini`, or `codex` CLI and local git clones, you're 5 minutes away from automated code reviews.
 
 ## Features
 
-- **Reuses what you already have** — your local git repos, your Claude/Gemini CLI subscription, your existing credentials. Nothing new to install or pay for.
+- **Reuses what you already have** — your local git repos, your Claude/Gemini/Codex CLI subscription, your existing credentials. Nothing new to install or pay for.
 - **Full codebase context** — reviews run on your actual local repos, not shallow CI clones. The AI can read any file, follow imports, and understand the full picture.
 - **Fast via git worktrees** — isolated checkouts that share `.git`. No re-cloning. Reviews start in milliseconds.
 - **Parallel reviews** — concurrent PR processing with configurable concurrency. Per-repo git locks, thread-safe SQLite, graceful shutdown.
@@ -24,7 +24,7 @@
 - **Daemon or one-shot** — background polling across all repos, or single PR reviews on demand. Dry-run mode to preview.
 - **Multi-repo, multi-AI** — different repos can use different AI backends, models, and review instructions.
 - **Smart re-reviews** — new commits on a PR trigger a fresh review; old comments are deleted automatically.
-- **Draft-aware** — skips draft PRs by default. Add `[review]`, `[claudiu]`, `[ask]`, or `[bot review]` to the title to request a review anyway.
+- **Draft-aware** — daemon skips draft PRs unless the title contains `[review]`, `[claudiu]`, `[ask]`, or `[bot review]`. One-shot `pr` command always reviews regardless of draft status.
 - **Auto-approve** — automatically approves PRs that pass configurable gates (diff size, severity, finding count) and AI-evaluated rules. Shows approval rationale in the summary comment.
 - **Critical tasks** — optionally creates a BitBucket PR task on critical findings to block merge.
 - **Spam protection** — configurable diff size thresholds, cooldowns, and title/author skip patterns.
@@ -45,7 +45,7 @@ Or with [`uv`](https://docs.astral.sh/uv/):
 uv tool install reviewd
 ```
 
-Requires Python 3.12+. You also need `claude` or `gemini` CLI installed and authenticated.
+Requires Python 3.12+. You also need `claude`, `gemini`, or `codex` CLI installed and authenticated.
 
 ### 2. Configure
 
@@ -107,7 +107,7 @@ reviewd watch -v                   # daemon mode
 ## How It Works
 
 ```
-Poll API → Check State (SQLite) → Fetch & Worktree → AI Review (Claude/Gemini) → Parse JSON → Post Comments → Cleanup
+Poll API → Check State (SQLite) → Fetch & Worktree → AI Review (Claude/Gemini/Codex) → Parse JSON → Post Comments → Cleanup
 ```
 
 1. Fetches open PRs from GitHub/BitBucket
@@ -131,7 +131,7 @@ bitbucket:
   your-workspace: you@example.com:${BB_API_TOKEN}
   other-workspace: other@example.com:${OTHER_BB_TOKEN}
 
-cli: claude                    # or "gemini"
+cli: claude                    # or "gemini" or "codex"
 # model: claude-sonnet-4-5-20250514
 
 # review_title: "review'd by {cli}"
@@ -153,7 +153,7 @@ repos:
     path: ~/repos/bb-frontend
     provider: bitbucket
     workspace: your-workspace
-    cli: gemini
+    cli: gemini                   # or "codex"
     model: gemini-2.5-pro
 ```
 
@@ -218,8 +218,8 @@ reviewd watch -v                              # daemon mode
 reviewd watch -v --dry-run                    # preview, no posting
 reviewd watch -v --review-existing            # review not-yet-reviewed open PRs
 reviewd watch --concurrency 8                 # override max concurrent reviews
-reviewd pr <repo> <id>                        # one-shot review
-reviewd pr <repo> <id> --force                # re-review (bypasses draft/skip)
+reviewd pr <repo> <id>                        # one-shot review (reviews drafts too)
+reviewd pr <repo> <id> --force                # re-review (bypasses already-reviewed/cooldown/skip)
 reviewd status <repo>                         # review history
 ```
 
@@ -236,21 +236,27 @@ reviewd status <repo>                         # review history
 
 > reviewd gives the AI CLI full tool access in git worktrees on your machine. Only watch repos where you trust the contributors.
 
-**Claude CLI (recommended)** is the more secure option. It runs with:
-- `--print` mode — read-only, no tool use, no code execution. The AI only sees the prompt and returns text.
-- `--disallowedTools Write,Edit` — explicitly blocks file modification tools as an extra layer
+**Claude CLI (recommended)** runs with the strongest sandboxing:
+- `--print` mode — non-interactive with full agentic tool access (file reading, bash commands, grep, glob). The AI explores the worktree autonomously and returns text.
+- `--disallowedTools Write,Edit` — surgically blocks file modification tools while keeping read/execute tools available. This is tool-level enforcement that the AI cannot bypass.
 - `--mcp-config '{"mcpServers":{}}' --strict-mcp-config` — disables all MCP servers, preventing external tool access
 - `CLAUDECODE` env var is unset — prevents nested Claude Code sessions
 
-**Gemini CLI** runs with `--approval-mode yolo` because it has no equivalent print-only mode. This means Gemini can execute commands and modify files in the worktree during review. Mitigated by:
+**Gemini CLI** runs with `--approval-mode yolo` (no confirmation prompts). This means Gemini can execute commands and modify files in the worktree during review. Mitigated by:
 - `-e none` — disables all extensions (no web access, no file tools beyond built-in)
-- But it's inherently less sandboxed than Claude's `--print`
+- Inherently less sandboxed than Claude since there's no tool-level write blocking
 
-**General mitigations (both CLIs):**
-- Reviews run in isolated git worktrees, not your working copy
-- The prompt includes a security scope block forbidding file writes, network access, and secret access
-- Per-project config (`.reviewd.yaml`) is read from the main repo, not the worktree — PR authors can't inject instructions
+**Codex CLI** runs with `codex exec` (non-interactive agent mode):
+- `--sandbox workspace-write` — OS-level sandbox restricting operations to the working directory
+- `exec` is inherently non-interactive — no approval prompts
+- No equivalent of Claude's `--disallowedTools` — the sandbox allows file writes within the workdir. Since reviews run in disposable worktrees, this is harmless (the worktree is deleted after each review).
+
+**General mitigations (all CLIs):**
+- Reviews run in isolated git worktrees, not your working copy — any file modifications are discarded
+- The prompt includes a mandatory security scope block (placed before any user-controlled content) forbidding file writes, network access, and secret access
+- Per-project config (`.reviewd.yaml`) is read from the main repo, not the worktree — PR authors can't inject instructions via config changes
 - `test_commands` come only from the repo owner's config, not from PR content
+- Prompt injection attempts in code under review are flagged as security findings
 
 ## Headless / VPS Deployment
 
@@ -287,6 +293,7 @@ reviewd watch -v
 - **Per-project config auto-pulls** — `.reviewd.yaml` is re-read on every review cycle and auto-pulled from remote if the working copy is clean. Push config changes and they take effect without restarting.
 - **Claude `--print` works headless** — no TTY needed, reads prompt from stdin, writes to stdout/stderr.
 - **Gemini `--approval-mode yolo -e none`** — no approval prompts, no extensions, fully non-interactive.
+- **Codex `exec --sandbox workspace-write`** — non-interactive agent mode, no TTY needed.
 
 ### systemd service example
 

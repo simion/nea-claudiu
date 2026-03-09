@@ -87,6 +87,7 @@ class ProjectConfig:
 class CLI(enum.StrEnum):
     CLAUDE = 'claude'
     GEMINI = 'gemini'
+    CODEX = 'codex'
 
 
 @dataclass
@@ -114,6 +115,7 @@ class GlobalConfig:
     cli: CLI = CLI.CLAUDE
     model: str | None = None
     cli_args: list[str] = field(default_factory=list)
+    cli_defaults: dict[CLI, list[str]] = field(default_factory=dict)
     instructions: str | None = None
     auto_approve: AutoApproveConfig | None = None
     skip_title_patterns: list[str] = field(default_factory=lambda: ['[no-review]', '[wip]', '[no-claudiu]'])

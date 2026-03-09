@@ -96,8 +96,8 @@ def _has_review_tag(title: str) -> bool:
     return any(tag in title_lower for tag in _REVIEW_TAGS)
 
 
-def _should_skip(pr: PRInfo, global_config: GlobalConfig) -> bool:
-    if pr.draft and not _has_review_tag(pr.title):
+def _should_skip(pr: PRInfo, global_config: GlobalConfig, *, ignore_draft: bool = False) -> bool:
+    if not ignore_draft and pr.draft and not _has_review_tag(pr.title):
         logger.debug('Skipping PR #%d: draft', pr.pr_id)
         return True
     title_lower = pr.title.lower()
@@ -119,6 +119,7 @@ def _process_pr(
     state_db: StateDB,
     dry_run: bool = False,
     force: bool = False,
+    ignore_draft: bool = False,
 ):
     if _shutdown_event.is_set():
         return
@@ -127,7 +128,7 @@ def _process_pr(
         logger.warning('PR #%d has no source commit (branch deleted?), skipping', pr.pr_id)
         return
 
-    if not force and _should_skip(pr, global_config):
+    if not force and _should_skip(pr, global_config, ignore_draft=ignore_draft):
         return
 
     if not force and state_db.has_review(pr.repo_slug, pr.pr_id, pr.source_commit):
@@ -173,6 +174,7 @@ def _process_pr(
             cli=repo_config.cli,
             model=repo_config.model or global_config.model,
             cli_args=global_config.cli_args,
+            cli_defaults=global_config.cli_defaults,
             progress_callback=progress_callback,
         )
         if _shutdown_event.is_set():
@@ -341,7 +343,13 @@ def run_poll_loop(
                 if (pr.repo_slug, pr.pr_id) in in_flight:
                     continue
                 future = executor.submit(
-                    _process_pr, pr, repo_cfg, proj_cfg, glob_cfg, state_db, dry_run=dry_run,
+                    _process_pr,
+                    pr,
+                    repo_cfg,
+                    proj_cfg,
+                    glob_cfg,
+                    state_db,
+                    dry_run=dry_run,
                 )
                 futures[future] = pr
                 in_flight.add((pr.repo_slug, pr.pr_id))
@@ -406,6 +414,15 @@ def review_single_pr(
 
     try:
         pr = provider.get_pr(repo_config.slug, pr_id)
-        _process_pr(pr, repo_config, project_config, global_config, state_db, dry_run=dry_run, force=force)
+        _process_pr(
+            pr,
+            repo_config,
+            project_config,
+            global_config,
+            state_db,
+            dry_run=dry_run,
+            force=force,
+            ignore_draft=True,
+        )
     finally:
         state_db.close()

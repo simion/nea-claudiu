@@ -162,32 +162,87 @@ def get_diff_lines(repo_path: str, pr: PRInfo) -> int:
     return total
 
 
+REVIEW_SCHEMA: dict = {
+    'type': 'object',
+    'properties': {
+        'overview': {'type': 'string'},
+        'findings': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'severity': {'type': 'string', 'enum': [s.value for s in Severity]},
+                    'category': {'type': 'string'},
+                    'title': {'type': 'string'},
+                    'file': {'type': 'string'},
+                    'line': {'type': ['integer', 'null']},
+                    'issue': {'type': 'string'},
+                    'fix': {'type': ['string', 'null']},
+                },
+                'required': ['severity', 'category', 'title', 'file', 'line', 'issue', 'fix'],
+                'additionalProperties': False,
+            },
+        },
+        'summary': {'type': 'string'},
+        'tests_passed': {'type': ['boolean', 'null']},
+        'approve': {'type': 'boolean'},
+        'approve_reason': {'type': ['string', 'null']},
+    },
+    'required': ['overview', 'findings', 'summary', 'tests_passed', 'approve', 'approve_reason'],
+    'additionalProperties': False,
+}
+
+
+CLI_DEFAULTS: dict[CLI, list[str]] = {
+    CLI.CLAUDE: [
+        'claude',
+        '--print',
+        '--disallowedTools',
+        'Write,Edit',
+        '--mcp-config',
+        '{"mcpServers":{}}',
+        '--strict-mcp-config',
+    ],
+    CLI.GEMINI: ['gemini', '--approval-mode', 'yolo', '-e', 'none'],
+    CLI.CODEX: ['codex', 'exec', '--sandbox', 'workspace-write'],
+}
+
+_CLI_PROMPT_MODE: dict[CLI, str] = {
+    CLI.CLAUDE: 'flag',
+    CLI.GEMINI: 'flag',
+    CLI.CODEX: 'stdin',
+}
+
+_CLI_NOT_FOUND_HINTS: dict[CLI, str] = {
+    CLI.CLAUDE: 'Install it first: https://github.com/anthropics/claude-code',
+    CLI.GEMINI: 'Make sure it is installed and on your PATH.',
+    CLI.CODEX: 'Install with: npm install -g @openai/codex',
+}
+
+
 def _build_cli_command(
     cli: CLI,
     prompt_file: str,
     model: str | None = None,
     extra_args: list[str] | None = None,
-) -> list[str]:
-    prompt_arg = Path(prompt_file).read_text()
+    cli_defaults: dict[CLI, list[str]] | None = None,
+) -> tuple[list[str], str | None]:
+    """Returns (command, stdin_input). stdin_input is None when prompt is passed via flag."""
+    prompt_text = Path(prompt_file).read_text()
     extra = extra_args or []
     model_args = ['--model', model] if model else []
-    if cli == CLI.CLAUDE:
-        return [
-            'claude',
-            '--print',
-            '--disallowedTools',
-            'Write,Edit',
-            '--mcp-config',
-            '{"mcpServers":{}}',
-            '--strict-mcp-config',
-            *model_args,
-            *extra,
-            '-p',
-            prompt_arg,
-        ]
-    if cli == CLI.GEMINI:
-        return ['gemini', '--approval-mode', 'yolo', '-e', 'none', *model_args, *extra, '-p', prompt_arg]
-    raise ValueError(f'Unknown AI CLI: {cli}')
+
+    if cli_defaults and cli in cli_defaults:
+        base = list(cli_defaults[cli])
+    elif cli in CLI_DEFAULTS:
+        base = list(CLI_DEFAULTS[cli])
+    else:
+        raise ValueError(f'Unknown AI CLI: {cli}')
+
+    prompt_mode = _CLI_PROMPT_MODE[cli]
+    if prompt_mode == 'stdin':
+        return [*base, *model_args, *extra, '-'], prompt_text
+    return [*base, *model_args, *extra, '-p', prompt_text], None
 
 
 def invoke_cli(
@@ -197,15 +252,32 @@ def invoke_cli(
     timeout: int = DEFAULT_TIMEOUT,
     model: str | None = None,
     cli_args: list[str] | None = None,
+    cli_defaults: dict[CLI, list[str]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write(prompt)
         prompt_file = f.name
 
+    schema_file = None
+    output_file = None
     try:
-        cmd = _build_cli_command(cli, prompt_file, model=model, extra_args=cli_args)
-        display_cmd = [c if c != cmd[-1] else '<prompt>' for c in cmd]
+        cmd, stdin_input = _build_cli_command(
+            cli, prompt_file, model=model, extra_args=cli_args, cli_defaults=cli_defaults
+        )
+
+        if cli == CLI.CODEX:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as sf:
+                schema_file = sf.name
+            Path(schema_file).write_text(json.dumps(REVIEW_SCHEMA))
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as of:
+                output_file = of.name
+            cmd = [*cmd[:-1], '--output-schema', schema_file, '-o', output_file, cmd[-1]]
+
+        if stdin_input:
+            display_cmd = list(cmd)
+        else:
+            display_cmd = [c if c != cmd[-1] else '<prompt>' for c in cmd]
         logger.info('Running: %s (cwd=%s, timeout=%ds)', ' '.join(display_cmd), cwd, timeout)
         logger.debug('Prompt:\n%s', prompt)
         env = {**os.environ}
@@ -214,6 +286,7 @@ def invoke_cli(
             proc = subprocess.Popen(
                 cmd,
                 cwd=cwd,
+                stdin=subprocess.PIPE if stdin_input else None,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -222,11 +295,13 @@ def invoke_cli(
             with _active_procs_lock:
                 _active_procs.add(proc)
         except FileNotFoundError as e:
-            raise RuntimeError(
-                f'"{cli.value}" CLI not found. Install it first: https://github.com/anthropics/claude-code'
-                if cli.value == 'claude'
-                else f'"{cli.value}" CLI not found. Make sure it is installed and on your PATH.'
-            ) from e
+            hint = _CLI_NOT_FOUND_HINTS.get(cli, 'Make sure it is installed and on your PATH.')
+            raise RuntimeError(f'"{cli.value}" CLI not found. {hint}') from e
+
+        if stdin_input and proc.stdin:
+            proc.stdin.write(stdin_input)
+            proc.stdin.close()
+            proc.stdin = None
 
         stderr_lines: list[str] = []
         stop_event = threading.Event()
@@ -235,7 +310,7 @@ def invoke_cli(
             for line in proc.stderr or []:
                 line = line.rstrip('\n')
                 stderr_lines.append(line)
-                logger.info('[%s] %s', cli.value, line)
+                logger.debug('[%s] %s', cli.value, line)
 
         def _progress_ticker():
             t0 = time.monotonic()
@@ -275,13 +350,49 @@ def invoke_cli(
         if proc.returncode != 0:
             logger.error('%s stderr: %s', cli.value, stderr)
             raise RuntimeError(f'{cli.value} exited with code {proc.returncode}: {stderr}')
+
+        if output_file and Path(output_file).exists():
+            result = Path(output_file).read_text()
+            if result.strip():
+                logger.info('Read output from -o file (%d chars)', len(result))
+                return result
+
         return stdout
     finally:
         Path(prompt_file).unlink(missing_ok=True)
+        if schema_file:
+            Path(schema_file).unlink(missing_ok=True)
+        if output_file:
+            Path(output_file).unlink(missing_ok=True)
+
+
+def _find_last_json_object(output: str) -> str | None:
+    """Find the last valid JSON object in output (no code fences)."""
+    # Search backwards for each '{' and try to parse from there to the last '}'
+    last_brace = output.rfind('}')
+    if last_brace == -1:
+        return None
+    pos = last_brace
+    while True:
+        pos = output.rfind('{', 0, pos)
+        if pos == -1:
+            return None
+        candidate = output[pos : last_brace + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            continue
 
 
 def extract_json(output: str) -> dict:
     matches = JSON_BLOCK_PATTERN.findall(output)
+    if not matches:
+        # Fallback: try to find raw JSON object without code fences (e.g. Codex output)
+        raw_json = _find_last_json_object(output)
+        if raw_json:
+            logger.info('No fenced JSON block found, extracted raw JSON object')
+            matches = [raw_json]
     if not matches:
         tail = output[-500:] if len(output) > 500 else output
         logger.error('No JSON block found in AI output. Last 500 chars:\n%s', tail)
@@ -338,6 +449,7 @@ def review_pr(
     timeout: int = DEFAULT_TIMEOUT,
     model: str | None = None,
     cli_args: list[str] | None = None,
+    cli_defaults: dict[CLI, list[str]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> ReviewResult:
     worktree_path = create_worktree(repo_path, pr)
@@ -351,6 +463,7 @@ def review_pr(
             timeout=timeout,
             model=model,
             cli_args=cli_args,
+            cli_defaults=cli_defaults,
             progress_callback=progress_callback,
         )
         elapsed = time.monotonic() - t0

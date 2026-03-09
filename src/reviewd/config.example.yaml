@@ -31,6 +31,30 @@
 #   - --some-flag
 #   - value
 
+# Override the built-in default flags for each CLI binary.
+# Use this if a CLI tool changes its flags and reviewd hasn't been updated yet.
+# Each key maps a CLI name to the base command + flags (before --model and -p).
+# cli_defaults:
+#   claude:
+#     - claude
+#     - --print
+#     - --disallowedTools
+#     - Write,Edit
+#     - --mcp-config
+#     - '{"mcpServers":{}}'
+#     - --strict-mcp-config
+#   gemini:
+#     - gemini
+#     - --approval-mode
+#     - yolo
+#     - -e
+#     - none
+#   codex:
+#     - codex
+#     - exec
+#     - --sandbox
+#     - workspace-write
+
 # --- Polling ---
 
 # How often to check for new PRs in daemon mode (seconds)

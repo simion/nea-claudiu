@@ -183,6 +183,7 @@ def load_global_config(path: str | Path | None = None) -> GlobalConfig:
         cli=global_cli,
         model=data.get('model'),
         cli_args=data.get('cli_args', []),
+        cli_defaults={CLI(k): v for k, v in data.get('cli_defaults', {}).items()},
         instructions=data.get('instructions'),
         auto_approve=global_aa,
         skip_title_patterns=data.get('skip_title_patterns', ['[no-review]', '[wip]', '[no-claudiu]']),

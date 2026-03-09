@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Local CLI tool that polls GitHub/BitBucket for open PRs, reviews them using Claude/Gemini CLI, and posts structured comments back. Invokes `claude --print` or `gemini -p` as local subprocesses — no API keys, uses existing CLI subscriptions.
+Local CLI tool that polls GitHub/BitBucket for open PRs, reviews them using Claude/Gemini/Codex CLI, and posts structured comments back. Invokes `claude --print`, `gemini -p`, or `codex exec` as local subprocesses — no API keys, uses existing CLI subscriptions.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ Poller (GitHub/BB API) → State Check (SQLite) → Worktree (git) → AI Review
 
 ### Global: `~/.config/reviewd/config.yaml`
 
-Provider credentials, repos list, poll interval, AI CLI choice, model, cli_args, global `instructions`, `review_title`, `footer`.
+Provider credentials, repos list, poll interval, AI CLI choice, model, cli_args, cli_defaults, global `instructions`, `review_title`, `footer`.
 
 ### Per-project: `{repo_root}/.reviewd.yaml`
 
@@ -65,9 +65,9 @@ Instructions merge: global + per-project concatenated (global first). Old `guide
 2. Clean up stale worktrees from previous interrupted runs
 3. Create git worktree at `{repo}/.reviewd-worktrees/pr-{id}`
 4. Build prompt: PR metadata + merged instructions + validation commands + JSON schema
-5. Run `claude --print --model X -p "<prompt>"` or `gemini --approval-mode yolo -e none -p "<prompt>"` via Popen
+5. Run `claude --print -p "<prompt>"`, `gemini -p "<prompt>"`, or `codex exec - < prompt` via Popen
 6. Stream stderr for progress, ticker thread logs elapsed time every 30s
-7. Extract last ```json``` block from stdout
+7. Extract last ```json``` block from stdout (falls back to raw JSON object for CLIs that don't output fenced blocks)
 8. Delete old bot comments by tracked IDs from SQLite
 9. Post inline comments (single-line, with `suggestion` code fence) + summary comment
 10. Cleanup worktree
@@ -80,17 +80,19 @@ reviewd ls                                    # list repos + open PRs
 reviewd watch -v                              # daemon mode
 reviewd watch -v --review-existing            # review not-yet-reviewed open PRs
 reviewd watch -v --cli gemini                 # override AI CLI
-reviewd pr pydpf 42                           # one-shot review
+reviewd pr pydpf 42                           # one-shot review (reviews drafts too)
 reviewd pr pydpf 42 --dry-run                 # preview without posting
 reviewd pr pydpf 42 --force                   # re-review even if already done
-reviewd pr pydpf 42 --cli gemini              # override AI CLI
+reviewd pr pydpf 42 --cli codex               # override AI CLI
 reviewd status pydpf                          # review history
 ```
 
 ## Prompt Injection Defenses
 
 - Prompt includes a security scope block (before any user-controlled content) that forbids file writes, network access, accessing secrets, and following instructions embedded in code
+- Claude CLI: `--disallowedTools Write,Edit` + empty MCP config + `CLAUDECODE` env var unset
 - Gemini CLI: `-e none` disables all extensions
+- Codex CLI: `--sandbox workspace-write` restricts to worktree directory
 - Project config (`.reviewd.yaml`) is read from the main repo, not the worktree — PR authors cannot inject instructions via config
 - `test_commands` come only from the repo owner's config, not from PR content
 
@@ -114,5 +116,6 @@ rm -rf dist && uv build && uv publish
 - Can't `git fetch` by commit hash from BB — if source branch is deleted, commit must exist locally
 - Claude CLI rejects nested sessions — must unset `CLAUDECODE` env var in subprocess
 - Gemini CLI loads global extensions by default — use `-e none` to disable
+- Codex CLI outputs raw JSON (no markdown fences) — extract_json falls back to raw JSON object parsing
 - Inline suggestions are single-line only (TODO: multi-line support)
 - AI may hallucinate line numbers — prompt instructs to double-check but not guaranteed

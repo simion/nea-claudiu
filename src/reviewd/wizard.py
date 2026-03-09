@@ -15,15 +15,17 @@ REMOTE_PATTERNS = [
     (r'bitbucket\.org[:/](?P<slug>[^/\s]+/[^/\s]+)', 'bitbucket'),
 ]
 
-STYLE = Style([
-    ('qmark', 'fg:cyan bold'),
-    ('question', 'bold'),
-    ('answer', 'fg:cyan'),
-    ('pointer', 'fg:cyan bold'),
-    ('highlighted', 'fg:white bold'),
-    ('selected', 'fg:ansidarkgreen noinherit'),
-    ('instruction', 'fg:ansigray'),
-])
+STYLE = Style(
+    [
+        ('qmark', 'fg:cyan bold'),
+        ('question', 'bold'),
+        ('answer', 'fg:cyan'),
+        ('pointer', 'fg:cyan bold'),
+        ('highlighted', 'fg:white bold'),
+        ('selected', 'fg:ansidarkgreen noinherit'),
+        ('instruction', 'fg:ansigray'),
+    ]
+)
 
 
 def _section(title: str):
@@ -231,6 +233,7 @@ def _build_global_config_yaml(
     lines.append(f'cli: {cli}')
     lines.append('# model: claude-sonnet-4-5-20250514')
     lines.append('# cli_args: []')
+    lines.append('# cli_defaults: {}  # override built-in CLI flags, see config.example.yaml')
     lines.append('')
     lines.append('# poll_interval_seconds: 60')
     lines.append('# max_concurrent_reviews: 4')
@@ -320,9 +323,10 @@ github:
 #   my-workspace: me@example.com:ATATT3x...
 
 # ─── AI CLI ───────────────────────────────────────────────────────────
-cli: claude                           # claude or gemini
+cli: claude                           # claude, gemini, or codex
 # model: claude-sonnet-4-5-20250514
 # cli_args: []
+# cli_defaults: {}  # override built-in CLI flags, see config.example.yaml
 
 # ─── Polling ──────────────────────────────────────────────────────────
 # poll_interval_seconds: 60
@@ -503,7 +507,7 @@ def _run_wizard_inner():
     _section('AI CLI')
     cli = questionary.select(
         'Which AI CLI?',
-        choices=['claude', 'gemini'],
+        choices=['claude', 'gemini', 'codex'],
         default='claude',
         style=STYLE,
         instruction='(↑↓ move, enter select)',
