@@ -97,8 +97,9 @@ def create_worktree(repo_path: str, pr: PRInfo) -> str:
         cleanup_worktree(repo_path, pr)
 
     with _repo_locks[repo_path]:
-        # Try fetching branch by name first; fall back to destination only
-        # (source branch may have been deleted after merge)
+        # Try fetching branch by name first; fall back to PR ref or commit hash
+        # (source branch may live on a fork or have been deleted after merge)
+        pr_ref_fetched = False
         fetch_result = subprocess.run(
             ['git', 'fetch', 'origin', pr.source_branch, pr.destination_branch],
             cwd=repo_path,
@@ -120,8 +121,22 @@ def create_worktree(repo_path: str, pr: PRInfo) -> str:
                     f'Cannot fetch destination branch {pr.destination_branch}: '
                     f'{dest_result.stderr.decode().strip()}'
                 )
+            # Try PR refs (works for forks and deleted branches)
+            # GitHub: refs/pull/<id>/head, BitBucket: refs/pull-requests/<id>/from
+            for pr_ref in [f'pull/{pr.pr_id}/head', f'pull-requests/{pr.pr_id}/from']:
+                ref_result = subprocess.run(
+                    ['git', 'fetch', 'origin', pr_ref],
+                    cwd=repo_path,
+                    capture_output=True,
+                    env=_GIT_ENV,
+                    timeout=120,
+                )
+                if ref_result.returncode == 0:
+                    logger.info('Fetched PR via ref: %s', pr_ref)
+                    pr_ref_fetched = True
+                    break
 
-        # Use branch ref if available, otherwise the commit hash (must exist locally)
+        # Use branch ref if available, then FETCH_HEAD (from PR ref), then commit hash
         checkout_ref = f'origin/{pr.source_branch}'
         ref_check = subprocess.run(
             ['git', 'rev-parse', '--verify', checkout_ref],
@@ -131,7 +146,7 @@ def create_worktree(repo_path: str, pr: PRInfo) -> str:
             timeout=10,
         )
         if ref_check.returncode != 0:
-            checkout_ref = pr.source_commit
+            checkout_ref = 'FETCH_HEAD' if pr_ref_fetched else pr.source_commit
 
         wt_result = subprocess.run(
             [
