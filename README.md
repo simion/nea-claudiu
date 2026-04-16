@@ -48,6 +48,19 @@ uv tool install reviewd
 
 Requires Python 3.12+. You also need `claude`, `gemini`, or `codex` CLI installed and authenticated.
 
+> **Running on a headless server?** Claude CLI's interactive `/login` expires and can't re-authenticate without a browser. Generate a long-lived token instead:
+>
+> ```bash
+> # On a machine with a browser (once per year):
+> claude setup-token
+>
+> # On your server:
+> export CLAUDE_CODE_OAUTH_TOKEN="the-token"
+> reviewd watch
+> ```
+>
+> The token uses your existing Claude subscription (Pro/Max/Team/Enterprise) and lasts **1 year**. Alternatively, set `ANTHROPIC_API_KEY` for API-billed usage with no expiry.
+
 ### 2. Configure
 
 ```bash
