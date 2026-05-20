@@ -475,16 +475,26 @@ def extract_json(output: str) -> dict:
         logger.error('No JSON block found in AI output. Last 500 chars:\n%s', tail)
         raise ValueError('No JSON block found in AI output')
     raw = matches[-1]
+    # strict=False permits literal control characters (newlines, tabs, CR) inside
+    # string values — a common LLM failure mode when emitting multi-line `issue`
+    # or `fix` fields without escaping.
     try:
-        return json.loads(raw)
+        return json.loads(raw, strict=False)
     except json.JSONDecodeError:
         # Strip trailing commas before } or ] (common LLM JSON error) and retry
         fixed = re.sub(r',\s*([}\]])', r'\1', raw)
         try:
             logger.warning('Fixed trailing commas in AI JSON output')
-            return json.loads(fixed)
+            return json.loads(fixed, strict=False)
         except json.JSONDecodeError as e:
-            logger.error('Malformed JSON in AI output: %s\nRaw JSON:\n%s', e, raw[:1000])
+            # Dump the full AI output so the review can be salvaged manually
+            # rather than throwing away the entire (paid-for) call.
+            dump_path = Path(tempfile.gettempdir()) / f'reviewd-failed-{int(time.time())}.txt'
+            try:
+                dump_path.write_text(output)
+                logger.error('Malformed JSON in AI output: %s. Full output saved to %s', e, dump_path)
+            except OSError:
+                logger.error('Malformed JSON in AI output: %s\nRaw JSON:\n%s', e, raw[:1000])
             raise ValueError(f'Malformed JSON in AI output: {e}') from e
 
 
